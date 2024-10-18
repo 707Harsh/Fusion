@@ -9,39 +9,35 @@ from django.core.exceptions import ValidationError
 
 
 class LeaveFormTable(models.Model):
-    """
-    Records information related to student leave requests.
-
-    'leave_from' and 'leave_to' store the start and end date of the leave request.
-    'date_of_application' stores the date when the leave request was applied.
-    'related_document' stores any related documents or notes for the leave request.
-    'place' stores the location where the leave is requested.
-    'reason' stores the reason for the leave request.
-    'leave_type' stores the type of leave from a dropdown.
-    """
     LEAVE_TYPES = (
         ('Casual', 'Casual'),
         ('Medical', 'Medical'),
-        
     )
-    
+
+    STATUS_CHOICES = (
+        ('Pending', 'Pending'),
+        ('Approved', 'Approved'),
+        ('Rejected', 'Rejected'),
+    )
 
     student_name = models.CharField(max_length=100)
     roll_no = models.ForeignKey(ExtraInfo, on_delete=models.CASCADE)
     date_from = models.DateField()
     date_to = models.DateField()
     date_of_application = models.DateField()
-    upload_file = models.FileField(blank=True)
+    upload_file = models.FileField(upload_to='leave_documents/', blank=True, null=True)
     address = models.CharField(max_length=100)
     purpose = models.TextField()
     leave_type = models.CharField(max_length=20, choices=LEAVE_TYPES)
-    approved = models.BooleanField()
-    rejected = models.BooleanField()
-    hod= models.CharField(max_length=100)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='Pending')
+    hod = models.CharField(max_length=100)
 
     class Meta:
-        db_table='LeaveFormTable'
-        
+        db_table = 'LeaveFormTable'
+
+    def clean(self):
+        if self.date_from > self.date_to:
+            raise ValidationError('The start date of leave cannot be later than the end date.')
 
 class LeavePG(models.Model):
     """
@@ -160,7 +156,11 @@ class GraduateSeminarFormTable(models.Model):
 
 class BonafideFormTableUpdated(models.Model):
    
-    
+    STATUS_CHOICES = (
+        ('Pending', 'Pending'),
+        ('Approved', 'Approved'),
+        ('Rejected', 'Rejected'),
+    )
 
     student_names = models.CharField(max_length=100)
     roll_nos = models.ForeignKey(ExtraInfo, on_delete=models.CASCADE)
@@ -168,9 +168,8 @@ class BonafideFormTableUpdated(models.Model):
     semester_types = models.CharField(max_length=20)
     purposes = models.TextField()
     date_of_applications= models.DateField()
-    approve = models.BooleanField()
-    reject = models.BooleanField()
-    download_file = models.FileField(upload_to='Bonafide',default="not available")
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='Pending')
+    download_file = models.CharField(max_length=20,  default='unavailable')
    
     
 

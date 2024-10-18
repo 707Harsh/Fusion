@@ -1,4 +1,8 @@
 from django.conf.urls import url
+from django.contrib import admin
+from django.urls import path, include  # Import 'include' to include app-specific URLs
+
+
 
 from . import views
 
@@ -207,7 +211,7 @@ urlpatterns = [
     url(r'^othersAssistantship/$', views.othersAssistantship, name='othersAssistanship'),
     url(r'^othersNoDues/$', views.othersNoDues, name='othersNoDues'),
 
-
-
+path('admin/', admin.site.urls),
+    path('api/', include('applications.otheracademic.api.urls')),
 ]
 

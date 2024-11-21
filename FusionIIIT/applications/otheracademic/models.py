@@ -30,7 +30,13 @@ class LeaveFormTable(models.Model):
     purpose = models.TextField()
     leave_type = models.CharField(max_length=20, choices=LEAVE_TYPES)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='Pending')
+    approved=models.BooleanField(default=False,null=False),  # Initially not approved
+    rejected=models.BooleanField(default=False,null=False),  # Initially not rejected
     hod = models.CharField(max_length=100)
+    stud_mobile_no = models.CharField(max_length=15, null=True, blank=True)
+    parent_mobile_no = models.CharField(max_length=15, null=True, blank=True)
+    leave_mobile_no = models.CharField(max_length=15, null=True, blank=True)
+    curr_sem=models.IntegerField(max_length=10,null=True)
 
     class Meta:
         db_table = 'LeaveFormTable'

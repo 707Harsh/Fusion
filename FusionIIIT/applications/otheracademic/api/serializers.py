@@ -17,5 +17,7 @@ class BonafideFormSerializer(serializers.ModelSerializer):
             'semester_types',
             'purposes',
             'date_of_applications',
+            'approve',
+            'reject',
             'download_file'
         ]

@@ -63,39 +63,38 @@ class LeavePG(models.Model):
         ('Duty', 'Duty')
         
     )
-    
 
+    STATUS_CHOICES = (
+        ('Pending', 'Pending'),
+        ('Approved', 'Approved'),
+        ('Rejected', 'Rejected'),
+    )
 
     student_name = models.CharField(max_length=100)
     roll_no = models.ForeignKey(ExtraInfo, on_delete=models.CASCADE)
-    programme = models.CharField(max_length=100)
-    discipline = models.CharField(max_length=100)
-    Semester = models.CharField(max_length=100)
     date_from = models.DateField()
     date_to = models.DateField()
     date_of_application = models.DateField()
-    upload_file = models.FileField(blank=True)
+    upload_file = models.FileField(upload_to='leave_documents/', blank=True, null=True)
     address = models.CharField(max_length=100)
     purpose = models.TextField()
     leave_type = models.CharField(max_length=20, choices=LEAVE_TYPES)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='Pending')
+    hod = models.CharField(max_length=100)
     ta_supervisor = models.CharField(max_length=100)
-    mobile_no = models.CharField(max_length=100)
-    parent_mobile_no = models.CharField(max_length=100)
-    alt_mobile_no = models.CharField(max_length=100)
-    ta_approved = models.BooleanField()
-    ta_rejected = models.BooleanField()
-    thesis_approved = models.BooleanField()
-    thesis_rejected = models.BooleanField()
-    hod_approved = models.BooleanField()
-    hod_rejected = models.BooleanField()
-    ta_supervisor=models.CharField(max_length=100)
-    thesis_supervisor=models.CharField(max_length=100)
-    hod=models.CharField(max_length=100)
+    thesis_supervisor = models.CharField(max_length=100)
+    stud_mobile_no = models.CharField(max_length=15, null=True, blank=True)
+    parent_mobile_no = models.CharField(max_length=15, null=True, blank=True)
+    leave_mobile_no = models.CharField(max_length=15, null=True, blank=True)
+    curr_sem=models.IntegerField(max_length=10,null=True)
     
 
     class Meta:
         db_table='LeavePG'
-
+        
+    def clean(self):
+        if self.date_from > self.date_to:
+            raise ValidationError('The start date of leave cannot be later than the end date.')
 
 
 

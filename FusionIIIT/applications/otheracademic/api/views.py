@@ -29,7 +29,7 @@ class LeaveFormSubmitView(APIView):
         data = request.data
         file = request.FILES.get('related_document')  
         hodname = data.get('hod_credential')
-
+        
       
         serializer = LeaveFormSerializer(data={
             'student_name': data.get('student_name'),
@@ -81,47 +81,156 @@ class LeaveFormSubmitView(APIView):
 
 
 
+
 class BonafideFormSubmitView(APIView):
     """
-    API view to handle Bonafide form submission
+    API view to handle Bonafide form submission.
     """
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated] 
 
     def post(self, request):
+        # Extract data from the request
+        data = request.POST
+        file = request.FILES.get('related_document')  # Handle the file if uploaded
 
-        data = request.data
-        # file = request.FILES.get('related_document')
+        try:
+            # Create a new BonafideFormTableUpdated instance and save it to the database
+            bonafide_form = BonafideFormTableUpdated.objects.create(
+                student_names=f"{request.user.first_name} {request.user.last_name}",
+                roll_nos=request.user.extrainfo,  # Assuming `extrainfo` is the user's ExtraInfo instance
+                branch_types=data.get('branch'),
+                semester_types=data.get('semester'),
+                purposes=data.get('purpose'),
+                date_of_applications=date.today(),
+                download_file=file.name if file else "unavailable",
+                approve=False,  # Default value
+                reject=False,  # Default value
+            )
 
-        bonafide_data = {
-            'student_names': data.get('student_name'),
-            'roll_nos': data.get('roll_no'),
-            'branch_types': data.get('branch'),
-            'semester_types': data.get('semester'),
-            'purposes': data.get('purpose'),
-            'date_of_applications': date.today(),
-            'download_file': "not available",
-        }
-
-
-        serializer = BonafideFormSerializer(data=bonafide_data)
-
-        if serializer.is_valid():
-
-            bonafide = serializer.save()
-
-            # if file:
-
-            #     bonafide.download_file = "/" 
-            #     bonafide.save()
-
-         
+            # Notify the academic admin about the new bonafide application
             acad_admin_des_id = Designation.objects.get(name="acadadmin")
             user_ids = HoldsDesignation.objects.filter(designation_id=acad_admin_des_id.id).values_list('user_id', flat=True)
-            bonafide_receiver = User.objects.get(id=user_ids[0])
-            message = 'A Bonafide application has been received'
-            otheracademic_notif(request.user, bonafide_receiver, 'bonafide', 1, 'student', message)
 
-            return Response({'message': 'Form submitted successfully', 'bonafide_id': bonafide.id}, status=status.HTTP_201_CREATED)
-        else:
-            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+            if user_ids.exists():
+                bonafide_receiver = User.objects.get(id=user_ids[0])
+                message = "A new Bonafide application has been submitted."
+                otheracademic_notif(
+                    request.user, 
+                    bonafide_receiver, 
+                    'bonafide', 
+                    bonafide_form.id, 
+                    'student', 
+                    message
+                )
+
+            return Response(
+                {"message": "Your bonafide form has been successfully submitted."},
+                status=status.HTTP_201_CREATED
+            )
+
+        except Exception as e:
+            return Response(
+                {"error": f"An error occurred: {str(e)}"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+
+
+ 
+
+ 
+
+class FetchPendingBonafideRequests(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, *args, **kwargs):
+        # Fetch Bonafide requests where both approve and reject are False (unseen requests)
+        pending_bonafides = BonafideFormTableUpdated.objects.filter(approve=False, reject=False)
+        
+        # Prepare response data
+        data = [
+            {
+                "id": bonafide.id,
+                "rollNo": bonafide.roll_nos_id,  # Assuming roll_no is a field in ExtraInfo
+                "name": bonafide.student_names,
+                "details": {
+                    "purpose": bonafide.purposes,
+                    "dateOfApplication": bonafide.date_of_applications,
+                    "semester": bonafide.semester_types,
+                },
+            }
+            for bonafide in pending_bonafides
+        ]
+        
+        return Response(data)
+
+
+
+ 
+
+ 
+
+class UpdateBonafideStatus(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, *args, **kwargs):
+        # Get the lists of approved and rejected bonafide request IDs from the request body
+        approved_bonafides_ids = request.data.get('approvedBonafides', [])
+        rejected_bonafides_ids = request.data.get('rejectedBonafides', [])
+
+        # Update the approve/reject status based on the provided lists
+        if approved_bonafides_ids:
+           BonafideFormTableUpdated.objects.filter(id__in=approved_bonafides_ids).update(approve=True, reject=False)
+
+        if rejected_bonafides_ids:
+            BonafideFormTableUpdated.objects.filter(id__in=rejected_bonafides_ids).update(approve=False, reject=True)
+
+        return Response({"message": "Bonafide statuses updated successfully."})
+
+
+
+class GetBonafideStatus(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, *args, **kwargs):
+        # Get roll number and username from the request
+        roll_no = request.data.get("roll_no")
+        username = request.data.get("username")
+
+        # Check if roll number and username are provided
+        if not roll_no or not username:
+            return Response(
+                {"error": "Roll number and username are required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            # Query bonafide forms for the given roll number
+            bonafide_requests = BonafideFormTableUpdated.objects.filter(roll_nos_id=roll_no)
+            
+            # Manually format the response data
+            response_data = [
+                {
+                    "rollNo": bonafide.roll_nos_id,
+                    "name": bonafide.student_names,
+                    "branch": bonafide.branch_types,
+                    "semester": bonafide.semester_types,
+                    "purpose": bonafide.purposes,
+                    "dateApplied": bonafide.date_of_applications.strftime("%Y-%m-%d") if bonafide.date_of_applications else None,
+                    "status": (
+                        "Approved" if bonafide.approve else "Rejected" if bonafide.reject else "Pending"
+                    ),
+                }
+                for bonafide in bonafide_requests
+            ]
+
+            return Response(response_data, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            return Response(
+                {"error": "An error occurred while fetching bonafide status.", "details": str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+

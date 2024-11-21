@@ -174,7 +174,9 @@ class BonafideFormTableUpdated(models.Model):
     semester_types = models.CharField(max_length=20)
     purposes = models.TextField()
     date_of_applications= models.DateField()
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='Pending')
+    approve = models.BooleanField(default=False)  # Make sure this exists
+    reject = models.BooleanField(default=False)   # Ensu
+    # status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='Pending')
     download_file = models.CharField(max_length=20,  default='unavailable')
    
     

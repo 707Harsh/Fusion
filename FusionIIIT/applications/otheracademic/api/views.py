@@ -3,6 +3,7 @@ from rest_framework.response import Response
 from rest_framework import status
 from .serializers import LeaveFormSerializer  ,BonafideFormSerializer 
 from datetime import date
+from datetime import datetime
 from django.shortcuts import render
 from django.contrib import messages
 from django.shortcuts import render, get_object_or_404, redirect,render
@@ -776,3 +777,420 @@ class GetBonafideStatus(APIView):
             return Response({'message': 'Form submitted successfully', 'bonafide_id': bonafide.id}, status=status.HTTP_201_CREATED)
         else:
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+class AssistantshipFormSubmitView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        data = request.POST
+        try:
+            # Log received data for debugging
+            print("Received data:", data)
+
+            # Parse dates using datetime.strptime()
+            try:
+                date_from = datetime.strptime(data.get('date_from'), '%Y-%m-%d').date()
+                date_to = datetime.strptime(data.get('date_to'), '%Y-%m-%d').date()
+            except ValueError:
+                return Response({"error": "Invalid date format. Please use YYYY-MM-DD."}, status=400)
+
+            # Validate dates
+            if not date_from or not date_to or date_from > date_to:
+                return Response({"error": "Invalid date range."}, status=400)
+
+            # Validate HOD user
+            hod_user = User.objects.filter(username=data.get('hod')).first()
+            if not hod_user:
+                return Response({"error": "HOD username not found."}, status=400)
+
+            # Create form
+            assistantship_form = AssistantshipClaimFormStatusUpd.objects.create(
+                roll_no=request.user.extrainfo,
+                student_name=f"{request.user.first_name} {request.user.last_name}",
+                discipline=data.get('discipline'),
+                dateFrom=date_from,
+                dateTo=date_to,
+                bank_account=data.get('bank_account_no'),
+                student_signature="apple",
+                dateApplied=datetime.strptime(data.get('date_applied'), '%Y-%m-%d').date(),
+                ta_supervisor=data.get('ta_supervisor'),
+                thesis_supervisor=data.get('thesis_supervisor'),
+                hod=data.get('hod'),
+                applicability=data.get('applicability'),
+                TA_approved=False,
+                TA_rejected=False,
+                Ths_approved=False,
+                Ths_rejected=False,
+                HOD_approved=False,
+                HOD_rejected=False,
+                Acad_approved=False,
+                Acad_rejected=False,
+            )
+
+            # Notify HOD
+            otheracademic_notif(
+                request.user,
+                hod_user,
+                "assistantship_form",
+                assistantship_form.id,
+                "student",
+                "A new Assistantship Claim Form has been submitted.",
+            )
+
+            return Response({"message": "Form submitted successfully."}, status=201)
+
+        except Exception as e:
+            print("Error occurred:", e)  # Log error for debugging
+            return Response({"error": "An unexpected error occurred."}, status=500)
+
+
+
+
+
+
+
+
+ 
+
+class DeptAdminUpdateAssistantshipStatus(APIView):
+    """
+    API view to handle assistantship status updates and send notifications to the HOD.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request): 
+        # Extract data from the request
+        approved_requests = request.data.get("approvedRequests", [])
+        rejected_requests = request.data.get("rejectedRequests", [])
+
+        try:
+            # Update approved requests
+            approved_forms = AssistantshipClaimFormStatusUpd.objects.filter(id__in=approved_requests)
+            approved_forms.update(TA_approved=True, TA_rejected=False)
+
+            # Send notifications for approved forms
+            for form in approved_forms:
+                try:
+                    hod_des_id = Designation.objects.get(name="hod")  # Fetch HOD designation
+                    hod_user_ids = HoldsDesignation.objects.filter(
+                        designation_id=hod_des_id.id,
+                        working=request.user.extrainfo.department
+                    ).values_list('user_id', flat=True)
+
+                    if hod_user_ids.exists():
+                        hod_user = User.objects.get(id=hod_user_ids[0])
+                        message = (
+                            f"A new Assistantship request has been approved by the TA and is "
+                        )
+                        otheracademic_notif(
+                            request.user, 
+                            hod_user, 
+                            "assistantship", 
+                            form.id, 
+                            "hod", 
+                            message
+                        )
+                except Exception as e:
+                    print(f"Notification error for form {form.id}: {str(e)}")
+
+            # Update rejected requests
+            AssistantshipClaimFormStatusUpd.objects.filter(id__in=rejected_requests).update(
+                TA_approved=False, TA_rejected=True
+            )
+
+            return Response(
+                {"message": "Assistantship statuses updated successfully, HOD notified for approved requests."},
+                status=status.HTTP_200_OK
+            )
+
+        except Exception as e:
+            return Response(
+                {"error": f"Failed to update assistantship statuses: {str(e)}"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+
+
+
+ 
+  
+
+class DeptAdminFetchPendingAssistantshipRequests(APIView):
+    """
+    Fetch all pending assistantship requests.
+    """
+
+    def get(self, request, *args, **kwargs):
+        try:
+            # Fetch pending forms
+            pending_forms = AssistantshipClaimFormStatusUpd.objects.filter(
+                TA_approved=False, TA_rejected=False
+            )
+
+            # Serialize the data
+            data = []
+            for form in pending_forms:
+                try:
+                    data.append({
+                        "id": form.id,
+                        "roll_no": form.roll_no_id,
+                        "student_name": form.student_name,
+                        "discipline": form.discipline,
+                        "dateFrom": form.dateFrom,
+                        "dateTo": form.dateTo,
+                        "ta_supervisor": form.ta_supervisor,
+                        "thesis_supervisor": form.thesis_supervisor,
+                        "applicability": form.applicability,
+                    })
+                except AttributeError as e:
+                    # Log problematic entries
+                    print(f"Error serializing form ID {form.id}: {e}")
+                    continue
+
+            return Response(data, status=200)
+
+        except Exception as e:
+            # Return detailed error message for debugging
+            return Response(
+                {"error": f"An error occurred: {str(e)}"},
+                status=500
+            )
+
+
+class HodFetchPendingAssistantshipRequests(APIView):
+    """
+    Fetch all pending assistantship requests where TA is approved and HOD is not approved.
+    """
+
+    def get(self, request, *args, **kwargs):
+        try:
+            # Fetch pending forms where TA is approved and HOD is not approved
+            pending_forms = AssistantshipClaimFormStatusUpd.objects.filter(
+                TA_approved=True,  # TA has approved
+                HOD_approved=False  # HOD has not approved
+            )
+
+            # Serialize the data
+            data = []
+            for form in pending_forms:
+                try:
+                    data.append({
+                        "id": form.id,
+                        "roll_no": form.roll_no_id,
+                        "student_name": form.student_name,
+                        "discipline": form.discipline,
+                        "dateFrom": form.dateFrom,
+                        "dateTo": form.dateTo,
+                        "ta_supervisor": form.ta_supervisor,
+                        "thesis_supervisor": form.thesis_supervisor,
+                        "applicability": form.applicability,
+                    })
+                except AttributeError as e:
+                    # Log problematic entries
+                    print(f"Error serializing form ID {form.id}: {e}")
+                    continue
+
+            return Response(data, status=200)
+
+        except Exception as e:
+            # Return detailed error message for debugging
+            return Response(
+                {"error": f"An error occurred: {str(e)}"},
+                status=500
+            )
+
+
+class HodUpdateAssistantshipStatus(APIView):
+    """
+    API view to handle HOD approval/rejection of assistantship requests and notify the academic admin.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        # Extract data from the request
+        data = request.data
+        approved_requests = data.get('approvedRequests', [])
+        rejected_requests = data.get('rejectedRequests', [])
+
+        try:
+            # Approve forms
+            approved_forms = AssistantshipClaimFormStatusUpd.objects.filter(id__in=approved_requests)
+            approved_forms.update(HOD_approved=True, HOD_rejected=False)
+
+            # Notify academic admin for approved requests
+            acad_admin_des_id = Designation.objects.get(name="acadadmin")
+            acad_admin_user_ids = HoldsDesignation.objects.filter(
+                designation_id=acad_admin_des_id.id
+            ).values_list('user_id', flat=True)
+
+            for form in approved_forms:
+                try:
+                    if acad_admin_user_ids.exists():
+                        acad_admin_user = User.objects.get(id=acad_admin_user_ids[0])
+                        message = (
+                            f"The Assistantship request for {form.student_name} "
+                            f"has been approved by the HOD and is forwarded for final review."
+                        )
+                        otheracademic_notif(
+                             request.user,
+                            acad_admin_user,
+                            "assistantship",
+                             form.id,
+                            "hod",
+                           "The Assistantship request for {form.student_name} ",
+                        )
+                except Exception as e:
+                    print(f"Notification error for form {form.id}: {str(e)}")
+
+            # Reject forms
+            rejected_forms = AssistantshipClaimFormStatusUpd.objects.filter(id__in=rejected_requests)
+            rejected_forms.update(HOD_approved=False, HOD_rejected=True)
+
+            return Response(
+                {"message": "HOD actions recorded successfully. Academic Admin notified for approved requests."},
+                status=status.HTTP_200_OK
+            )
+
+        except Exception as e:
+            return Response(
+                {"error": f"An error occurred: {str(e)}"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+
+
+class AcadAdminFetchPendingAssistantshipRequests(APIView):
+    """
+    Fetch all pending assistantship requests where TA and HOD have approved but Acad Admin has not approved/rejected.
+    """
+    permission_classes = [IsAuthenticated]  # Ensure only authenticated users can access
+
+    def get(self, request, *args, **kwargs):
+        try:
+            # Fetch pending forms where both TA and HOD are approved, but Acad Admin has not taken action
+            pending_forms = AssistantshipClaimFormStatusUpd.objects.filter(
+                TA_approved=True,  # TA has approved
+                HOD_approved=True,  # HOD has approved
+                Acad_approved=False,  # Acad Admin has not approved
+                Acad_rejected=False  # Acad Admin has not rejected
+            )
+
+            # Serialize the data
+            data = []
+            for form in pending_forms:
+                try:
+                    data.append({
+                        "id": form.id,
+                        "roll_no": form.roll_no_id,
+                        "student_name": form.student_name,
+                        "discipline": form.discipline,
+                        "dateFrom": form.dateFrom.strftime("%Y-%m-%d"),
+                        "dateTo": form.dateTo.strftime("%Y-%m-%d"),
+                        "ta_supervisor": form.ta_supervisor,
+                        "thesis_supervisor": form.thesis_supervisor,
+                        "applicability": form.applicability,
+                    })
+                except AttributeError as e:
+                    # Log problematic entries
+                    print(f"Error serializing form ID {form.id}: {e}")
+                    continue
+
+            return Response(data, status=200)
+
+        except Exception as e:
+            # Return detailed error message for debugging
+            return Response(
+                {"error": f"An error occurred: {str(e)}"},
+                status=500
+            )
+
+
+
+class AcadAdminUpdateAssistantshipStatus(APIView):
+    """
+    API view to handle Academic Admin's approval/rejection of assistantship requests.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        # Extract data from the request
+        data = request.data
+        approved_requests = data.get('approvedRequests', [])
+        rejected_requests = data.get('rejectedRequests', [])
+
+        try:
+            # Approve forms
+            AssistantshipClaimFormStatusUpd.objects.filter(id__in=approved_requests).update(
+                Acad_approved=True,
+                Acad_rejected=False
+            )
+
+            # Reject forms
+            AssistantshipClaimFormStatusUpd.objects.filter(id__in=rejected_requests).update(
+                Acad_approved=False,
+                Acad_rejected=True
+            )
+
+            return Response(
+                {"message": "Academic Admin actions recorded successfully."},
+                status=status.HTTP_200_OK
+            )
+
+        except Exception as e:
+            return Response(
+                {"error": f"An error occurred: {str(e)}"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+
+
+
+class GetAssistantshipStatus(APIView):
+    """
+    API to fetch the assistantship status of a student.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        roll_no = request.data.get("roll_no")
+
+        if not roll_no:
+            return Response(
+                {"error": "roll_no is required."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            # Fetch all forms for the student
+            forms = AssistantshipClaimFormStatusUpd.objects.filter(roll_no=roll_no)
+
+            if not forms.exists():
+                return Response(
+                    {"message": "No assistantship forms found for the given roll number."},
+                    status=status.HTTP_200_OK
+                )
+
+            # Serialize the data
+            data = []
+            for form in forms:
+                data.append({
+                    "id": form.id,
+                    "dateApplied": form.dateApplied,
+                    "applicability": form.applicability,
+                    "ta_supervisor": form.ta_supervisor,
+                    "thesis_supervisor": form.thesis_supervisor,
+                    "Acad_approved": form.Acad_approved,
+                    "Acad_rejected": form.Acad_rejected,
+                    "HOD_rejected": form.HOD_rejected,
+                    "TA_rejected": form.TA_rejected,
+                })
+
+            return Response(data, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            import traceback
+            print(traceback.format_exc())  # Log detailed error for debugging
+            return Response(
+                {"error": f"An error occurred: {str(e)}"},
+                status=status.HTTP_400_BAD_REQUEST
+            )

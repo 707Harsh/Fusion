@@ -31,7 +31,6 @@ class LeaveFormSubmitView(APIView):
         data = request.POST
         file = request.FILES.get('related_document')
         hodname = data.get('hod_credential')
-
         print(data.get('mobile_number'),data.get('parents_mobile'),"hello ab")
         
         # Create a new LeaveFormTable instance and save it to the database
@@ -72,23 +71,6 @@ class LeaveFormSubmitView(APIView):
             attached_file=None,
             subject='ug_leave'
         )
-
-        
-      
-        serializer = LeaveFormSerializer(data={
-            'student_name': data.get('student_name'),
-            'roll_no': data.get('roll_no'), 
-            'date_from': data.get('date_from'),
-            'date_to': data.get('date_to'),
-            'leave_type': data.get('leave_type'),
-            'upload_file': file,
-            'address': data.get('address'),
-            'purpose': data.get('purpose'),
-            'date_of_application': date.today(),
-            'approved': False, 
-            'rejected': False,
-            'hod': hodname
-        })
 
         # new_tracking = Tracking.objects.create(
         #     file_id=file_id,  # The newly created file object
@@ -405,6 +387,102 @@ class GetLeaveRequests(APIView):
         return Response(data, status=status.HTTP_200_OK)
 
 
+class GetPGLeaveRequests(APIView):
+    
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, *args, **kwargs):
+        # Get roll_no and username from query params
+        
+        roll_no_id = request.query_params.get('roll_no')
+        username = request.query_params.get('username')
+        print(roll_no_id,username)
+        
+        # print(f"Received roll_no: {roll_no_id}, username: {username}")
+
+
+        # # Filter the leave requests based on roll_no and student_name (username)
+        leave_requests = LeavePG.objects.filter(
+            roll_no=roll_no_id
+        )
+
+        # Serialize the data (assuming the serializer is defined for LeaveFormTable)
+        data = [
+            {
+                "rollNo": roll_no_id,  # Assuming roll_number is the field in ExtraInfo
+                "name": leave.student_name,
+                "dateFrom": leave.date_from,
+                "dateTo": leave.date_to,
+                "leaveType": leave.leave_type,
+                "attachment": leave.upload_file.url if leave.upload_file else None,
+                "purpose": leave.purpose,
+                "address": leave.address,
+                "action": leave.status,
+            }
+            for leave in leave_requests
+        ]
+        print(data) 
+
+        return Response(data, status=status.HTTP_200_OK)
+    
+
+
+@csrf_exempt  # Exempt CSRF verification for this view
+@login_required
+def leave_form_submit(request):
+    """
+    View function for submitting a leave form.
+
+    Description:
+        This function handles form submission for leave requests, processes the data, and saves it to the database.
+        It also notifies the relevant authority about the new leave application.
+    """
+    if request.method == 'POST':
+        # Extract data from the request
+        data = request.POST
+        file = request.FILES.get('related_document')
+        hodname = data.get('hod_credential')
+        
+        # Create a new LeaveFormTable instance and save it to the database
+        leave = LeaveFormTable.objects.create(
+            student_name=request.user.first_name+request.user.last_name,
+            roll_no=request.user.extrainfo,
+            date_from=data.get('date_from'),
+            date_to=data.get('date_to'),
+            leave_type=data.get('leave_type'),
+            upload_file=file,
+            address=data.get('address'),
+            purpose=data.get('purpose'),
+            date_of_application=date.today(),
+            hod=data.get('hod_credential')
+        )
+        
+        leave_hod = User.objects.get(username=hodname)
+        receiver_value = User.objects.get(username=request.user.username)
+        receiver_value_designation = HoldsDesignation.objects.filter(user=receiver_value)
+        lis = list(receiver_value_designation)
+        obj = lis[0].designation
+
+        file_id = create_file(
+            uploader=request.user.username,
+            uploader_designation=obj,
+            receiver=leave_hod,
+            receiver_designation="student",
+            src_module="otheracademic",
+            src_object_id=leave.id,
+            file_extra_JSON={"value": 2},
+            attached_file=None,
+            subject='ug_leave'
+        )
+
+
+        message = "A new leave application"
+        otheracademic_notif(request.user, leave_hod, 'ug_leave_hod', leave.id, 'student', message)
+        if leave:
+            messages.success(request, "You successfully submitted your form")
+            
+        # return HttpResponseRedirect('/otheracademic/leaveform')
+
 
 class BonafideFormSubmitView(APIView):
     """
@@ -620,6 +698,9 @@ def leave_form_submit(request):
             messages.success(request, "You successfully submitted your form")
             
         # return HttpResponseRedirect('/otheracademic/leaveform')
+
+
+        
 
 class BonafideFormSubmitView(APIView):
     """

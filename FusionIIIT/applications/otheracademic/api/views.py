@@ -505,15 +505,48 @@ class UpdateBonafideStatus(APIView):
         approved_bonafides_ids = request.data.get('approvedBonafides', [])
         rejected_bonafides_ids = request.data.get('rejectedBonafides', [])
 
-        # Update the approve/reject status based on the provided lists
-        if approved_bonafides_ids:
-           BonafideFormTableUpdated.objects.filter(id__in=approved_bonafides_ids).update(approve=True, reject=False)
+        try:
+            # Update the approve/reject status based on the provided lists
+            if approved_bonafides_ids:
+                BonafideFormTableUpdated.objects.filter(id__in=approved_bonafides_ids).update(approve=True, reject=False)
+                # Notify the respective students about approval
+                for bonafide_id in approved_bonafides_ids:
+                    bonafide_form = BonafideFormTableUpdated.objects.get(id=bonafide_id)
+                    student = User.objects.get(extrainfo=bonafide_form.roll_nos_id)  # Assuming `extrainfo` is the student's unique identifier
+                    # Send notification to the student about the approval
+                    message = f"Your Bonafide application has been appr oved. Please check the status."
+                    otheracademic_notif(
+                        request.user,  # The sender (admin)
+                        student,  # The receiver (student)
+                        'bonafide_accept',  # Notification type
+                        bonafide_form.id,  # The ID of the Bonafide form
+                        'admin',  # The role of the sender
+                        message  # The approval message
+                    )
 
-        if rejected_bonafides_ids:
-            BonafideFormTableUpdated.objects.filter(id__in=rejected_bonafides_ids).update(approve=False, reject=True)
+            if rejected_bonafides_ids:
+                BonafideFormTableUpdated.objects.filter(id__in=rejected_bonafides_ids).update(approve=False, reject=True)
 
-        return Response({"message": "Bonafide statuses updated successfully."})
+                # Notify the respective students about rejection
+                for bonafide_id in rejected_bonafides_ids:
+                    bonafide_form = BonafideFormTableUpdated.objects.get(id=bonafide_id)
+                    student = User.objects.get(extrainfo=bonafide_form.roll_nos)  # Assuming `extrainfo` is the student's unique identifier
 
+                    # Send notification to the student about the rejection
+                    message = f"Your Bonafide application has been rejected. Please check the status for further details."
+                    otheracademic_notif(
+                        request.user,  # The sender (admin)
+                        student,  # The receiver (student)
+                        'bonafide_accept',  # Notification type
+                        bonafide_form.id,  # The ID of the Bonafide form
+                        'admin',  # The role of the sender
+                        message  # The rejection message
+                    )
+
+            return Response({"message": "Bonafide statuses updated successfully."})
+
+        except Exception as e:
+            return Response({"error": f"An error occurred: {str(e)}"}, status=status.HTTP_400_BAD_REQUEST)
 
 
 class GetBonafideStatus(APIView):

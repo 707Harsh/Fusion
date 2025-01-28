@@ -226,7 +226,7 @@ class AssistantshipClaimFormStatusUpd(models.Model):
     dateTo = models.DateField()
 
     bank_account = models.CharField(max_length=100)
-    student_signature = models.FileField(upload_to='student_signatures/')
+    student_signature = models.CharField(max_length=255) 
     dateApplied = models.DateField()
     ta_supervisor = models.CharField(max_length=100)
     thesis_supervisor = models.CharField(max_length=100)
